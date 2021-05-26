@@ -16,6 +16,27 @@ from tensorflow.python.tpu.tpu_embedding_v2_utils import (
 from tensorflow.python.ops import init_ops_v2
 
 
+class AsSparseLayer(tf.keras.layers.Layer):
+    def call(self, inputs, **kwargs):
+        outputs = {}
+        to_convert = set()
+        for name, val in inputs.items():
+            if name.endswith("__values"):
+                to_convert.add(name.replace("__values", ""))
+            elif name.endswith("__nnzs"):
+                to_convert.add(name.replace("__nnzs", ""))
+            else:
+                outputs[name] = val
+
+        for name in to_convert:
+            values = inputs[name + "__values"][:, 0]
+            row_lengths = inputs[name + "__nnzs"][:, 0]
+
+            outputs[name] = tf.RaggedTensor.from_row_lengths(values, row_lengths).to_sparse()
+
+        return outputs
+
+
 class EmbeddingsLayer(tf.keras.layers.Layer):
     """Mimics the API of [TPUEmbedding-layer](https://github.com/tensorflow/recommenders/blob/main/tensorflow_recommenders/layers/embedding/tpu_embedding_layer.py#L221)
     from TF-recommenders, use this for efficient embeddings on CPU or GPU."""
@@ -23,6 +44,7 @@ class EmbeddingsLayer(tf.keras.layers.Layer):
     def __init__(self, feature_config: T.Dict[str, FeatureConfig], **kwargs):
         super().__init__(**kwargs)
         self.feature_config = feature_config
+        self.convert_to_sparse = AsSparseLayer()
 
     def build(self, input_shapes):
         self.embedding_tables = {}
@@ -42,20 +64,23 @@ class EmbeddingsLayer(tf.keras.layers.Layer):
             )
         super().build(input_shapes)
 
+    def lookup_feature(self, name, val):
+        table: TableConfig = self.feature_config[name].table
+        table_var = self.embedding_tables[table.name]
+        if isinstance(val, tf.SparseTensor):
+            return tf.nn.safe_embedding_lookup_sparse(
+                table_var, tf.cast(val, tf.int32), None, combiner=table.combiner
+            )
+
+        # embedded_outputs[name] = tf.gather(table_var, tf.cast(val, tf.int32))
+        return tf.gather(table_var, val[:, 0, 0])
+
     def call(self, inputs, **kwargs):
         embedded_outputs = {}
-        for name, val in inputs.items():
+        sparse_inputs = self.convert_to_sparse(inputs)
+        for name, val in sparse_inputs.items():
             if name in self.feature_config:
-                table: TableConfig = self.feature_config[name].table
-                table_var = self.embedding_tables[table.name]
-                if isinstance(val, tf.SparseTensor):
-                    embeddings = tf.nn.safe_embedding_lookup_sparse(
-                        table_var, tf.cast(val, tf.int32), None, combiner=table.combiner
-                    )
-                else:
-                    # embeddings = tf.gather(table_var, tf.cast(val, tf.int32))
-                    embeddings = tf.gather(table_var, val[:, 0])
-                embedded_outputs[name] = embeddings
+                embedded_outputs[name] = self.lookup_feature(name, val)
 
         return embedded_outputs
 
@@ -143,7 +168,7 @@ class Dataset(object):
         return dask_cudf.read_parquet(self.train_files).sample(frac=sample).compute()
 
     def train_tf_dataset(self, batch_size, shuffle=True, buffer_size=0.06, parts_per_chunk=1):
-        return KerasSparseSequenceLoader(
+        return _KerasSequenceLoader(
             self.train_files,
             batch_size=batch_size,
             label_names=self.targets,
@@ -163,7 +188,7 @@ class Dataset(object):
         return dask_cudf.read_parquet(self.eval_files).sample(frac=sample).compute()
 
     def eval_tf_dataset(self, batch_size, shuffle=True, buffer_size=0.06, parts_per_chunk=1):
-        return KerasSparseSequenceLoader(
+        return _KerasSequenceLoader(
             self.eval_files,
             batch_size=batch_size,
             label_names=self.targets,
@@ -181,14 +206,20 @@ class Dataset(object):
     def create_default_input_layer(self, workflow: nvt.Workflow):
         return InputLayer(self.continuous_features, EmbeddingsLayer.from_nvt_workflow(workflow))
 
-    def create_keras_inputs(self):
+    def create_keras_inputs(self, for_prediction=False, sparse_columns=None):
+        if sparse_columns is None:
+            sparse_columns = []
         inputs = {}
 
         for col in self.continuous_features:
             inputs[col] = tf.keras.Input(name=col, dtype=tf.float32, shape=(None, 1))
 
         for col in self.categorical_features:
-            inputs[col] = tf.keras.Input(name=col, dtype=tf.int32, shape=(None, 1))
+            if for_prediction or col not in sparse_columns:
+                inputs[col] = tf.keras.Input(name=col, dtype=tf.int32, shape=(None, 1))
+            else:
+                inputs[col + "__values"] = tf.keras.Input(name=f"{col}__values", dtype=tf.int64, shape=(1,))
+                inputs[col + "__nnzs"] = tf.keras.Input(name=f"{col}__nnzs", dtype=tf.int64, shape=(1,))
 
         return inputs
 

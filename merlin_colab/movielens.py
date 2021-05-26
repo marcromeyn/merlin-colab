@@ -1,103 +1,13 @@
 import shutil
-import typing as T
 from dataclasses import dataclass
 import os
-import glob
 
-import dask_cudf
 import cudf
 import nvtabular as nvt
-from nvtabular.loader.tensorflow import KerasSequenceValidater
 from nvtabular.utils import download_file
 from sklearn.model_selection import train_test_split
-import tensorflow as tf
 
-from merlin_colab.nvt_extended import KerasSparseSequenceLoader, Dataset
-
-
-# @dataclass
-# class Dataset(object):
-#     train_path: str
-#     eval_path: str
-#
-#     categorical_features: T.List[str]
-#     continuous_features: T.List[str]
-#     targets: T.List[str]
-#
-#     @property
-#     def train_files(self):
-#         return sorted(glob.glob(os.path.join(self.train_path, "*.parquet")))
-#
-#     def train_df(self, sample=0.1):
-#         return dask_cudf.read_parquet(self.train_files).sample(frac=sample).compute()
-#
-#     def train_tf_dataset(self, batch_size, shuffle=True, buffer_size=0.06, parts_per_chunk=1):
-#         return KerasSparseSequenceLoader(
-#             self.train_files,
-#             batch_size=batch_size,
-#             label_names=self.targets,
-#             cat_names=self.categorical_features,
-#             cont_names=self.continuous_features,
-#             engine="parquet",
-#             shuffle=shuffle,
-#             buffer_size=buffer_size,  # how many batches to load at once
-#             parts_per_chunk=parts_per_chunk,
-#         )
-#
-#     @property
-#     def eval_files(self):
-#         return sorted(glob.glob(os.path.join(self.eval_path, "*.parquet")))
-#
-#     def eval_df(self, sample=0.1):
-#         return dask_cudf.read_parquet(self.eval_files).sample(frac=sample).compute()
-#
-#     def eval_tf_dataset(self, batch_size, shuffle=True, buffer_size=0.06, parts_per_chunk=1):
-#         return KerasSparseSequenceLoader(
-#             self.eval_files,
-#             batch_size=batch_size,
-#             label_names=self.targets,
-#             cat_names=self.categorical_features,
-#             cont_names=self.continuous_features,
-#             engine="parquet",
-#             shuffle=shuffle,
-#             buffer_size=buffer_size,  # how many batches to load at once
-#             parts_per_chunk=parts_per_chunk,
-#         )
-#
-#     def eval_tf_callback(self, batch_size, **kwargs):
-#         return KerasSequenceValidater(self.eval_tf_dataset(batch_size, **kwargs))
-#
-#     def create_default_embedding_columns(self, workflow: nvt.Workflow):
-#         embedding_size = nvt.ops.get_embedding_sizes(workflow)
-#         embedding_cols = []
-#         for col in self.categorical_features:
-#             embedding_cols.append(
-#                 tf.feature_column.embedding_column(
-#                     tf.feature_column.categorical_column_with_identity(
-#                         col, embedding_size[col][0]
-#                     ),  # Input dimension (vocab size)
-#                     embedding_size[col][1],  # Embedding output dimension
-#                 )
-#             )
-#
-#         return embedding_cols
-#
-#     def create_keras_inputs(self, multi_hot_columns=None):
-#         if multi_hot_columns is None:
-#             multi_hot_columns = []
-#         inputs = {}
-#
-#         for col in self.continuous_features:
-#             inputs[col] = tf.keras.Input(name=col, dtype=tf.float32, shape=(1,))
-#
-#         for col in self.categorical_features:
-#             # if col in multi_hot_columns:
-#             #     inputs[col + "__values"] = tf.keras.Input(name=f"{col}__values", dtype=tf.int64, shape=(1,))
-#             #     inputs[col + "__nnzs"] = tf.keras.Input(name=f"{col}__nnzs", dtype=tf.int64, shape=(1,))
-#             # else:
-#             inputs[col] = tf.keras.Input(name=col, dtype=tf.int32, shape=(None, 1))
-#
-#         return inputs
+from merlin_colab.nvt_extended import Dataset
 
 
 @dataclass
