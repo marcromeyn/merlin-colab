@@ -167,8 +167,9 @@ class Dataset(object):
     def train_df(self, sample=0.1):
         return dask_cudf.read_parquet(self.train_files).sample(frac=sample).compute()
 
-    def train_tf_dataset(self, batch_size, shuffle=True, buffer_size=0.06, parts_per_chunk=1):
-        return _KerasSequenceLoader(
+    def train_tf_dataset(self, batch_size, shuffle=True, buffer_size=0.06, parts_per_chunk=1, sparse=False):
+        cls = KerasSparseSequenceLoader if sparse else _KerasSequenceLoader
+        return cls(
             self.train_files,
             batch_size=batch_size,
             label_names=self.targets,
@@ -187,8 +188,9 @@ class Dataset(object):
     def eval_df(self, sample=0.1):
         return dask_cudf.read_parquet(self.eval_files).sample(frac=sample).compute()
 
-    def eval_tf_dataset(self, batch_size, shuffle=True, buffer_size=0.06, parts_per_chunk=1):
-        return _KerasSequenceLoader(
+    def eval_tf_dataset(self, batch_size, shuffle=True, buffer_size=0.06, parts_per_chunk=1, sparse=False):
+        cls = KerasSparseSequenceLoader if sparse else _KerasSequenceLoader
+        return cls(
             self.eval_files,
             batch_size=batch_size,
             label_names=self.targets,
